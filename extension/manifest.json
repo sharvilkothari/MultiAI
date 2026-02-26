@@ -1,0 +1,34 @@
+{
+    "manifest_version": 3,
+    "name": "AI Compare",
+    "version": "2.0",
+    "description": "Compare ChatGPT & Gemini responses side-by-side",
+    "permissions": [
+        "scripting",
+        "tabs"
+    ],
+    "host_permissions": [
+        "https://chatgpt.com/*",
+        "https://gemini.google.com/*",
+        "http://localhost:3000/*"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "http://localhost:3000/*"
+            ],
+            "js": [
+                "content-app.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "externally_connectable": {
+        "matches": [
+            "http://localhost:3000/*"
+        ]
+    }
+}

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Compare — ChatGPT vs Gemini</title>
+    <meta name="description" content="Compare ChatGPT and Gemini responses side-by-side with browser automation" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">⚡</span>
+                    <h1>AI Compare</h1>
+                </div>
+                <p class="header-sub">ChatGPT vs Gemini — side by side</p>
+            </div>
+        </header>
+
+        <!-- Extension Status Banner -->
+        <div class="status-banner" id="statusBanner" style="display:none;">
+            <span>⚠️ Extension not detected — </span>
+            <span>Go to <code>chrome://extensions</code>, enable Developer Mode, click "Load unpacked" → select the
+                <code>extension/</code> folder</span>
+        </div>
+
+        <!-- Prompt Input -->
+        <section class="prompt-section">
+            <div class="prompt-container">
+                <textarea id="promptInput" class="prompt-input"
+                    placeholder="Enter your prompt here... (Ctrl+Enter to send)" rows="4"></textarea>
+                <div class="prompt-actions">
+                    <div class="mode-toggle">
+                        <label class="switch">
+                            <input type="checkbox" id="mode-switch">
+                            <span class="slider round"></span>
+                        </label>
+                        <span id="mode-label">Parallel Compare</span>
+                    </div>
+
+                    <button class="stop-btn hidden" id="stopBtn">
+                        <span class="stop-btn-icon">■</span>
+                    </button>
+
+                    <button class="run-btn" id="runBtn">
+                        <span class="run-btn-icon">▶</span>
+                        <span class="run-btn-text">Run Comparison</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Response Panels -->
+        <section class="results-section">
+            <div class="results-grid" id="gridView">
+                <!-- ChatGPT Panel -->
+                <div class="panel panel-chatgpt" id="panelChatgpt">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <span class="panel-icon chatgpt-icon">◉</span>
+                            <span>ChatGPT</span>
+                        </div>
+                        <div class="panel-meta" id="metaChatgpt"></div>
+                    </div>
+                    <div class="panel-body" id="bodyChatgpt">
+                        <div class="panel-placeholder">
+                            <span class="placeholder-icon">💬</span>
+                            <p>ChatGPT response will appear here</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gemini Panel -->
+                <div class="panel panel-gemini" id="panelGemini">
+                    <div class="panel-header">
+                        <div class="panel-title">
+                            <span class="panel-icon gemini-icon">◈</span>
+                            <span>Gemini</span>
+                        </div>
+                        <div class="panel-meta" id="metaGemini"></div>
+                    </div>
+                    <div class="panel-body" id="bodyGemini">
+                        <div class="panel-placeholder">
+                            <span class="placeholder-icon">✨</span>
+                            <p>Gemini response will appear here</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Debate Timeline View -->
+            <div id="timelineView" class="timeline-container hidden">
+                <div id="timelineItems">
+                    <!-- Dynamic timeline items will go here -->
+                </div>
+                <div class="timeline-controls" id="timelineControls" style="display:none;">
+                    <button id="continueBtn" class="secondary-btn">Step</button>
+                    <button id="autoConvergeBtn" class="secondary-btn">Auto-Converge</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Personal research tool — not officially supported by OpenAI or Google</p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

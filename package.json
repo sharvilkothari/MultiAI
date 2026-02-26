@@ -1,0 +1,12 @@
+{
+    "name": "ai-compare",
+    "version": "2.0.0",
+    "description": "Compare ChatGPT & Gemini side-by-side — Chrome extension + static server",
+    "type": "module",
+    "scripts": {
+        "dev": "node server/index.js"
+    },
+    "dependencies": {
+        "express": "^4.21.0"
+    }
+}
