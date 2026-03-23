@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function handlePrompt(prompt, fileData) {
   await dismissPopups();
-  if (fileData) await attachFile(fileData);
+  if (fileData && fileData.length > 0) await attachFiles(fileData);
   await typePrompt(prompt);
   await submitPrompt();
   await waitForResponse();
@@ -23,12 +23,17 @@ async function handlePrompt(prompt, fileData) {
 
 /* ── File Attachment ───────────────────────────────────────────── */
 
-async function attachFile(fileData) {
-  const base64 = fileData.dataUrl.split(',')[1];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const file = new File([bytes], fileData.name, { type: fileData.type });
+async function attachFiles(fileDataArray) {
+  const dt = new DataTransfer();
+  
+  for (const fileData of fileDataArray) {
+    const base64 = fileData.dataUrl.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const file = new File([bytes], fileData.name, { type: fileData.type });
+    dt.items.add(file);
+  }
 
   const inputSelectors = ['input[type="file"]', 'input[accept*="image"]'];
   let input = null;
@@ -38,8 +43,6 @@ async function attachFile(fileData) {
   }
   if (!input) throw new Error('ChatGPT file input not found');
 
-  const dt = new DataTransfer();
-  dt.items.add(file);
   input.files = dt.files;
   input.dispatchEvent(new Event('change', { bubbles: true }));
 
@@ -82,6 +85,8 @@ async function dismissPopups() {
 }
 
 async function typePrompt(prompt) {
+  if (!prompt || !prompt.trim()) return;
+
   const selectors = [
     '#prompt-textarea',
     '[data-testid="prompt-textarea"]',

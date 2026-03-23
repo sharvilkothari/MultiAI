@@ -14,7 +14,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function handlePrompt(prompt, fileData) {
   await dismissPopups();
-  if (fileData) await attachFile(fileData);
+  if (fileData && fileData.length > 0) await attachFiles(fileData);
   await typePrompt(prompt);
   await submitPrompt();
   await waitForResponse();
@@ -23,32 +23,37 @@ async function handlePrompt(prompt, fileData) {
 
 /* ── File Attachment ───────────────────────────────────────────── */
 
-async function attachFile(fileData) {
-  const base64 = fileData.dataUrl.split(',')[1];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const file = new File([bytes], fileData.name, { type: fileData.type });
+async function attachFiles(fileDataArray) {
+  const dt = new DataTransfer();
+
+  for (const fileData of fileDataArray) {
+    const base64 = fileData.dataUrl.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const file = new File([bytes], fileData.name, { type: fileData.type });
+    dt.items.add(file);
+  }
 
   // Try clipboard paste first, then menu file input
   let injected = false;
 
   try {
-    injected = await tryClipboardPaste(file);
+    injected = await tryClipboardPaste(dt);
   } catch (e) { /* ignore */ }
 
   if (!injected) {
     try {
-      injected = await tryMenuFileInput(file);
+      injected = await tryMenuFileInput(dt);
     } catch (e) { /* ignore */ }
   }
 
   // After injection, wait for the file to be fully processed by Gemini
   // PDFs can take 10-30s to upload and process
-  await waitForFileProcessed(fileData.name);
+  await waitForFilesProcessed(fileDataArray.map(f => f.name));
 }
 
-async function waitForFileProcessed(fileName) {
+async function waitForFilesProcessed(fileNames) {
   // Wait for the file chip to appear and its loading to finish
   // Poll for up to 30 seconds
   for (let i = 0; i < 60; i++) {
@@ -56,38 +61,45 @@ async function waitForFileProcessed(fileName) {
 
     // Look for ANY element in the input area that contains the filename or "PDF"
     const allEls = document.querySelectorAll('*');
-    let chipFound = false;
-    let stillLoading = false;
+    let allReady = true;
 
-    for (const el of allEls) {
-      const text = el.textContent || '';
-      // Check if this element looks like a file chip (contains filename or "PDF")
-      if (text.includes(fileName.replace(/\.[^.]+$/, '')) || 
-          (text.includes('PDF') && el.closest && el.closest('[class*="chip"], [class*="file"], [class*="upload"], [class*="attachment"]'))) {
-        chipFound = true;
-        // Check if there's a loading/progress indicator nearby
-        const parent = el.closest('div') || el.parentElement;
-        if (parent) {
-          const loadingEl = parent.querySelector('[class*="loading"], [class*="progress"], [role="progressbar"], mat-spinner, .spinner');
-          if (loadingEl && loadingEl.offsetParent !== null) {
-            stillLoading = true;
+    for (const fileName of fileNames) {
+      let chipFound = false;
+      let stillLoading = false;
+
+      for (const el of allEls) {
+        const text = el.textContent || '';
+        // Check if this element looks like a file chip (contains filename or "PDF")
+        if (text.includes(fileName.replace(/\.[^.]+$/, '')) || 
+            (text.includes('PDF') && el.closest && el.closest('[class*="chip"], [class*="file"], [class*="upload"], [class*="attachment"]'))) {
+          chipFound = true;
+          // Check if there's a loading/progress indicator nearby
+          const parent = el.closest('div') || el.parentElement;
+          if (parent) {
+            const loadingEl = parent.querySelector('[class*="loading"], [class*="progress"], [role="progressbar"], mat-spinner, .spinner');
+            if (loadingEl && loadingEl.offsetParent !== null) {
+              stillLoading = true;
+            }
           }
+          break;
         }
+      }
+
+      if (!chipFound || stillLoading) {
+        allReady = false;
         break;
       }
     }
 
-    // If chip found and NOT loading → file is ready
-    if (chipFound && !stillLoading && i > 10) return; // minimum 5s wait
-    // If chip found and loading → keep waiting
-    if (chipFound && stillLoading) continue;
+    // If all chips found and NOT loading → file is ready
+    if (allReady && i > 10) return; // minimum 5s wait
   }
 
   // Fallback: wait a fixed 15 seconds to be safe
   await sleep(15000);
 }
 
-async function tryClipboardPaste(file) {
+async function tryClipboardPaste(dt) {
   const editorSels = [
     '.ql-editor',
     'div[contenteditable="true"][role="textbox"]',
@@ -104,8 +116,6 @@ async function tryClipboardPaste(file) {
   editor.focus();
   await sleep(300);
 
-  const dt = new DataTransfer();
-  dt.items.add(file);
   editor.dispatchEvent(new ClipboardEvent('paste', {
     bubbles: true, cancelable: true, clipboardData: dt,
   }));
@@ -113,7 +123,7 @@ async function tryClipboardPaste(file) {
   return true;
 }
 
-async function tryMenuFileInput(file) {
+async function tryMenuFileInput(dt) {
   const menuSels = [
     'button[aria-label*="Open input area menu"]',
     'button[aria-label*="input area menu"]',
@@ -142,8 +152,6 @@ async function tryMenuFileInput(file) {
   }
   if (!input) { document.body.click(); return false; }
 
-  const dt = new DataTransfer();
-  dt.items.add(file);
   input.files = dt.files;
   input.dispatchEvent(new Event('change', { bubbles: true }));
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -170,6 +178,8 @@ async function dismissPopups() {
 }
 
 async function typePrompt(prompt) {
+  if (!prompt || !prompt.trim()) return;
+
   const selectors = [
     '.ql-editor',
     'div[contenteditable="true"][role="textbox"]',

@@ -58,12 +58,8 @@
                 </div>
                 <textarea id="promptInput" class="prompt-input"
                     placeholder="Ask for strategy, code, research, or visual analysis... (Ctrl+Enter to send)" rows="4"></textarea>
-                <input type="file" id="fileInput" accept="image/*,.pdf" style="display:none;" />
-                <div id="fileChip" class="file-chip hidden">
-                    <span class="file-chip-icon">📎</span>
-                    <span id="fileChipName" class="file-chip-name"></span>
-                    <button id="fileChipRemove" class="file-chip-remove" aria-label="Remove file">×</button>
-                </div>
+                <input type="file" id="fileInput" accept="image/*,.pdf" style="display:none;" multiple />
+                <div id="fileChipsContainer" class="file-chips-container"></div>
                 <div class="prompt-actions">
                     <div class="left-actions">
                         <button class="attach-btn" id="attachBtn" title="Attach image or PDF">

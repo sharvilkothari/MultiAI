@@ -10,9 +10,7 @@ const timelineView = document.getElementById('timelineView');
 const timelineItems = document.getElementById('timelineItems');
 const attachBtn    = document.getElementById('attachBtn');
 const fileInput    = document.getElementById('fileInput');
-const fileChip     = document.getElementById('fileChip');
-const fileChipName = document.getElementById('fileChipName');
-const fileChipRemove = document.getElementById('fileChipRemove');
+const fileChipsContainer = document.getElementById('fileChipsContainer');
 const micBtn         = document.getElementById('micBtn');
 const promptContainer = document.querySelector('.prompt-container');
 
@@ -34,7 +32,7 @@ let isRunning = false;
 let extensionReady = false;
 let currentMode = 'parallel'; // 'parallel' | 'debate'
 let pendingRequests = {};
-let selectedFile = null; // { name, type, size, dataUrl }
+let selectedFiles = []; // Array of { name, type, size, dataUrl }
 
 // ── Web Speech API ────────────────────────────────────────────────
 let recognition = null;
@@ -104,12 +102,14 @@ document.addEventListener('DOMContentLoaded', () => {
   attachBtn.addEventListener('click', () => fileInput.click());
 
   fileInput.addEventListener('change', async () => {
-    const file = fileInput.files[0];
-    if (file) await handleFileSelected(file);
+    if (fileInput.files.length > 0) {
+      for (const file of fileInput.files) {
+        await handleFileSelected(file);
+      }
+      renderFileChips();
+    }
     fileInput.value = '';
   });
-
-  fileChipRemove.addEventListener('click', () => clearFile());
 
   promptContainer.addEventListener('dragover', (e) => {
     e.preventDefault();
@@ -121,8 +121,12 @@ document.addEventListener('DOMContentLoaded', () => {
   promptContainer.addEventListener('drop', async (e) => {
     e.preventDefault();
     promptContainer.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) await handleFileSelected(file);
+    if (e.dataTransfer.files.length > 0) {
+      for (const file of e.dataTransfer.files) {
+        await handleFileSelected(file);
+      }
+      renderFileChips();
+    }
   });
 
   // Mode Switcher
@@ -195,7 +199,7 @@ function sendViaExtension(action, payload) {
 // ── Run Parallel Comparison (Original) ────────────────────────────
 async function runParallelComparison() {
   const prompt = promptInput.value.trim();
-  if (!prompt || isRunning) return;
+  if ((!prompt && selectedFiles.length === 0) || isRunning) return;
 
   if (!checkExtension()) return;
 
@@ -208,7 +212,7 @@ async function runParallelComparison() {
   }
 
   try {
-    const results = await sendViaExtension('runComparison', { prompt, fileData: selectedFile });
+    const results = await sendViaExtension('runComparison', { prompt, fileData: selectedFiles });
 
     for (const [name, result] of Object.entries(results)) {
       const panel = panels[name];
@@ -233,7 +237,7 @@ async function runParallelComparison() {
 // ── Run Debate (New) ──────────────────────────────────────────────
 async function runDebate() {
   const prompt = promptInput.value.trim();
-  if (!prompt || isRunning) return;
+  if ((!prompt && selectedFiles.length === 0) || isRunning) return;
 
   if (!checkExtension()) return;
   
@@ -266,7 +270,7 @@ async function runDebate() {
 
   try {
     // Start the long-running process
-    const result = await sendViaExtension('startDebate', { prompt, fileData: selectedFile });
+    const result = await sendViaExtension('startDebate', { prompt, fileData: selectedFiles });
     
     if (!result.success) {
       addTimelineItem('system', 'System', `Debate stopped: ${result.error}`);
@@ -301,18 +305,48 @@ async function handleFileSelected(file) {
     alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 25 MB.`);
     return;
   }
+  
+  // Check if file is already added
+  if (selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+    return;
+  }
+
   const dataUrl = await readFileAsDataURL(file);
-  selectedFile = { name: file.name, type: file.type, size: file.size, dataUrl };
-  fileChipName.textContent = file.name;
-  fileChip.classList.remove('hidden');
-  attachBtn.classList.add('has-file');
+  selectedFiles.push({ name: file.name, type: file.type, size: file.size, dataUrl });
 }
 
-function clearFile() {
-  selectedFile = null;
-  fileChip.classList.add('hidden');
-  fileChipName.textContent = '';
-  attachBtn.classList.remove('has-file');
+function removeFile(index) {
+  selectedFiles.splice(index, 1);
+  renderFileChips();
+}
+
+function renderFileChips() {
+  fileChipsContainer.innerHTML = '';
+  if (selectedFiles.length === 0) {
+    attachBtn.classList.remove('has-file');
+    return;
+  }
+  
+  attachBtn.classList.add('has-file');
+  selectedFiles.forEach((file, index) => {
+    const chip = document.createElement('div');
+    chip.className = 'file-chip';
+    chip.innerHTML = `
+      <span class="file-chip-icon">📎</span>
+      <span class="file-chip-name">${escapeHtml(file.name)}</span>
+      <button class="file-chip-remove" aria-label="Remove file" data-index="${index}">×</button>
+    `;
+    fileChipsContainer.appendChild(chip);
+  });
+  
+  // Add listeners to new remove buttons
+  const removeBtns = fileChipsContainer.querySelectorAll('.file-chip-remove');
+  removeBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.getAttribute('data-index'));
+      removeFile(idx);
+    });
+  });
 }
 
 function readFileAsDataURL(file) {
