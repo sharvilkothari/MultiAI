@@ -8,12 +8,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const { action, payload } = msg;
 
   if (action === 'runComparison') {
-    runComparison(payload.prompt).then(sendResponse);
+    runComparison(payload.prompt, payload.fileData).then(sendResponse);
     return true; // async
   }
   
   if (action === 'startDebate') {
-    runDebate(payload.prompt, sender.tab.id).then(sendResponse);
+    runDebate(payload.prompt, payload.fileData, sender.tab.id).then(sendResponse);
     return true; // async
   }
 
@@ -46,13 +46,18 @@ async function createSession(name, url) {
   return { name, tabId, windowId: win.id };
 }
 
-async function querySession(session, prompt) {
+async function querySession(session, prompt, fileData) {
   const t0 = Date.now();
   try {
-    const result = await sendTabMessage(session.tabId, { action: 'sendPrompt', prompt });
+    const result = await sendTabMessage(session.tabId, { action: 'sendPrompt', prompt, fileData: fileData || null });
+    const raw = result.response;
+    // Normalize: ChatGPT returns string, Gemini returns {html, text}
+    const response = (typeof raw === 'object' && raw.text) ? raw.text : raw;
+    const responseHtml = (typeof raw === 'object' && raw.html) ? raw.html : null;
     return {
       success: true,
-      response: result.response,
+      response,
+      responseHtml,
       duration: Date.now() - t0
     };
   } catch (err) {
@@ -72,21 +77,20 @@ async function closeSession(session) {
 
 // ── Single Turn Comparison ────────────────────────────────────────
 
-async function runComparison(prompt) {
+async function runComparison(prompt, fileData) {
   let sessions = {};
   
   try {
-    // 1. Create sessions in parallel
     const [chatgpt, gemini] = await Promise.all([
       createSession('chatgpt', 'https://chatgpt.com/'),
       createSession('gemini', 'https://gemini.google.com/app')
     ]);
     sessions = { chatgpt, gemini };
 
-    // 2. Query in parallel
+    // 2. Query in parallel (pass fileData)
     const [resGPT, resGemini] = await Promise.all([
-      querySession(chatgpt, prompt),
-      querySession(gemini, prompt)
+      querySession(chatgpt, prompt, fileData),
+      querySession(gemini, prompt, fileData)
     ]);
 
     return { chatgpt: resGPT, gemini: resGemini };
@@ -94,7 +98,6 @@ async function runComparison(prompt) {
   } catch (err) {
     return { error: err.message };
   } finally {
-    // 3. Cleanup
     await Promise.all(Object.values(sessions).map(closeSession));
   }
 }
@@ -103,7 +106,7 @@ async function runComparison(prompt) {
 
 let debateActive = false;
 
-async function runDebate(initialPrompt, clientTabId) {
+async function runDebate(initialPrompt, fileData, clientTabId) {
   let sessions = {};
   debateActive = true;
   
@@ -127,9 +130,10 @@ async function runDebate(initialPrompt, clientTabId) {
     // ── Round 1: Initial Arguments ──────────────────────────────────
     emit('status', { message: 'Round 1: Generating initial arguments...' });
     
+    // Pass fileData only in Round 1 — tab retains context for subsequent rounds
     let [resGPT, resGemini] = await Promise.all([
-      querySession(chatgpt, initialPrompt),
-      querySession(gemini, initialPrompt)
+      querySession(chatgpt, initialPrompt, fileData),
+      querySession(gemini, initialPrompt, fileData)
     ]);
 
     emit('turn', { agent: 'chatgpt', ...resGPT, round: 1 });

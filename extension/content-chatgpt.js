@@ -5,21 +5,59 @@
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.action !== 'sendPrompt') return;
-  handlePrompt(msg.prompt).then(
+  handlePrompt(msg.prompt, msg.fileData).then(
     response => sendResponse({ response }),
     err => sendResponse({ error: err.message || String(err) })
   );
   return true; // async
 });
 
-async function handlePrompt(prompt) {
+async function handlePrompt(prompt, fileData) {
   await dismissPopups();
+  if (fileData) await attachFile(fileData);
   await typePrompt(prompt);
   await submitPrompt();
   await waitForResponse();
   return extractResponse();
 }
 
+/* ── File Attachment ───────────────────────────────────────────── */
+
+async function attachFile(fileData) {
+  const base64 = fileData.dataUrl.split(',')[1];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const file = new File([bytes], fileData.name, { type: fileData.type });
+
+  const inputSelectors = ['input[type="file"]', 'input[accept*="image"]'];
+  let input = null;
+  for (const sel of inputSelectors) {
+    input = document.querySelector(sel);
+    if (input) break;
+  }
+  if (!input) throw new Error('ChatGPT file input not found');
+
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  input.files = dt.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+
+  // Poll every 5s to check upload complete (up to 60s)
+  await waitForUploadComplete();
+}
+
+async function waitForUploadComplete() {
+  for (let i = 0; i < 12; i++) {
+    await sleep(5000);
+    const progress = document.querySelector('[role="progressbar"], [class*="progress"], [aria-label*="uploading"]');
+    const stillUploading = progress && progress.offsetParent !== null;
+    const sendBtn = document.querySelector('[data-testid="send-button"], button[aria-label="Send prompt"]');
+    const sendEnabled = sendBtn && !sendBtn.disabled;
+    if (!stillUploading && sendEnabled) return;
+    if (!stillUploading && i >= 2) return;
+  }
+}
 /* ── Helpers ──────────────────────────────────────────────── */
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -97,13 +135,17 @@ async function submitPrompt() {
     'button[aria-label="Send"]',
   ];
 
-  for (const sel of sendSelectors) {
-    const btn = document.querySelector(sel);
-    if (btn && !btn.disabled) {
-      btn.click();
-      await sleep(300);
-      return;
+  // Poll for send button to become enabled (up to 15s)
+  for (let wait = 0; wait < 30; wait++) {
+    for (const sel of sendSelectors) {
+      const btn = document.querySelector(sel);
+      if (btn && !btn.disabled) {
+        btn.click();
+        await sleep(300);
+        return;
+      }
     }
+    await sleep(500);
   }
 
   // Fallback: Enter key
@@ -189,17 +231,152 @@ function extractResponse() {
     if (els.length > 0) {
       const el = els[els.length - 1];
       const clone = el.cloneNode(true);
-      clone.querySelectorAll('button, nav, header, [class*="copy"], [class*="action"]').forEach(n => n.remove());
-      const text = clone.innerText.trim();
+      clone.querySelectorAll('button, nav, header, [class*="copy"], [class*="action"], [class*="toolbar"]').forEach(n => n.remove());
+      const text = htmlToMarkdown(clone).trim();
       if (text && text.length > 5) return text;
     }
   }
 
   const articles = document.querySelectorAll('article, [data-testid*="conversation"]');
   if (articles.length > 0) {
-    const text = articles[articles.length - 1].innerText.trim();
+    const text = htmlToMarkdown(articles[articles.length - 1]).trim();
     if (text && text.length > 5) return text;
   }
 
   throw new Error('Could not extract ChatGPT response');
+}
+
+function htmlToMarkdown(el) {
+  let result = '';
+  for (const node of el.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      result += node.textContent;
+      continue;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+
+    const tag = node.tagName.toLowerCase();
+
+    // KaTeX: extract LaTeX source from annotation element
+    if (tag === 'annotation') {
+      result += ` $${node.textContent}$ `;
+      continue;
+    }
+    // KaTeX span wrapper
+    if (tag === 'span' && (node.classList.contains('katex') || node.classList.contains('katex-display'))) {
+      const ann = node.querySelector('annotation');
+      if (ann) {
+        const isDisplay = node.classList.contains('katex-display');
+        result += isDisplay ? `\n$$${ann.textContent}$$\n` : ` $${ann.textContent}$ `;
+        continue;
+      }
+    }
+    // MathJax: extract from script type="math/tex"
+    if (tag === 'script' && (node.type || '').includes('math')) {
+      result += ` $${node.textContent}$ `;
+      continue;
+    }
+    // Math container with specific math class
+    if (node.classList && (node.classList.contains('math') || node.classList.contains('math-inline') || node.classList.contains('math-display') || node.classList.contains('katex-html'))) {
+      const ann = node.querySelector('annotation');
+      if (ann) {
+        const isDisplay = node.classList.contains('math-display') || node.classList.contains('katex-display');
+        result += isDisplay ? `\n$$${ann.textContent}$$\n` : ` $${ann.textContent}$ `;
+        continue;
+      }
+    }
+
+    // Headers
+    const hMatch = tag.match(/^h([1-6])$/);
+    if (hMatch) {
+      result += '\n' + '#'.repeat(parseInt(hMatch[1])) + ' ' + htmlToMarkdown(node) + '\n\n';
+      continue;
+    }
+
+    // Paragraphs
+    if (tag === 'p') {
+      result += '\n\n' + htmlToMarkdown(node) + '\n\n';
+      continue;
+    }
+
+    // Line breaks
+    if (tag === 'br') { result += '\n'; continue; }
+
+    // Lists
+    if (tag === 'ul' || tag === 'ol') {
+      const items = node.querySelectorAll(':scope > li');
+      items.forEach((li, idx) => {
+        const prefix = tag === 'ol' ? `${idx + 1}. ` : '- ';
+        result += prefix + htmlToMarkdown(li).trim() + '\n';
+      });
+      result += '\n';
+      continue;
+    }
+    if (tag === 'li') { continue; } // handled by ul/ol
+
+    // Code blocks
+    if (tag === 'pre') {
+      const code = node.querySelector('code');
+      const lang = code ? (code.className.match(/language-(\w+)/)?.[1] || '') : '';
+      const text = (code || node).textContent;
+      result += '\n```' + lang + '\n' + text + '\n```\n';
+      continue;
+    }
+
+    // Inline code
+    if (tag === 'code' && (!node.parentElement || node.parentElement.tagName !== 'PRE')) {
+      result += '`' + node.textContent + '`';
+      continue;
+    }
+
+    // Bold / Strong
+    if (tag === 'strong' || tag === 'b') {
+      result += '**' + htmlToMarkdown(node) + '**';
+      continue;
+    }
+
+    // Italic / Em
+    if (tag === 'em' || tag === 'i') {
+      result += '*' + htmlToMarkdown(node) + '*';
+      continue;
+    }
+
+    // Superscript / Subscript → LaTeX notation
+    if (tag === 'sup') { result += '^{' + node.textContent + '}'; continue; }
+    if (tag === 'sub') { result += '_{' + node.textContent + '}'; continue; }
+
+    // Blockquote
+    if (tag === 'blockquote') {
+      const lines = htmlToMarkdown(node).trim().split('\n');
+      result += '\n' + lines.map(l => '> ' + l).join('\n') + '\n';
+      continue;
+    }
+
+    // Tables
+    if (tag === 'table') {
+      const rows = node.querySelectorAll('tr');
+      rows.forEach((row, rIdx) => {
+        const cells = row.querySelectorAll('th, td');
+        result += '| ' + [...cells].map(c => htmlToMarkdown(c).trim()).join(' | ') + ' |\n';
+        if (rIdx === 0) {
+          result += '| ' + [...cells].map(() => '---').join(' | ') + ' |\n';
+        }
+      });
+      result += '\n';
+      continue;
+    }
+
+    // Divs and other block elements
+    if (['div', 'section', 'article', 'main'].includes(tag)) {
+      const inner = htmlToMarkdown(node);
+      if (inner.trim().length > 0) {
+        result += '\n' + inner + '\n';
+      }
+      continue;
+    }
+
+    // Spans and other inline elements
+    result += htmlToMarkdown(node);
+  }
+  return result;
 }

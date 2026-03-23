@@ -8,6 +8,13 @@ const modeLabel   = document.getElementById('mode-label');
 const gridView    = document.getElementById('gridView');
 const timelineView = document.getElementById('timelineView');
 const timelineItems = document.getElementById('timelineItems');
+const attachBtn    = document.getElementById('attachBtn');
+const fileInput    = document.getElementById('fileInput');
+const fileChip     = document.getElementById('fileChip');
+const fileChipName = document.getElementById('fileChipName');
+const fileChipRemove = document.getElementById('fileChipRemove');
+const micBtn         = document.getElementById('micBtn');
+const promptContainer = document.querySelector('.prompt-container');
 
 const panels = {
   chatgpt: {
@@ -27,7 +34,63 @@ let isRunning = false;
 let extensionReady = false;
 let currentMode = 'parallel'; // 'parallel' | 'debate'
 let pendingRequests = {};
+let selectedFile = null; // { name, type, size, dataUrl }
+
+// ── Web Speech API ────────────────────────────────────────────────
+let recognition = null;
+let isRecording = false;
+let originalPrompt = '';
+
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    isRecording = true;
+    micBtn.classList.add('recording');
+    originalPrompt = promptInput.value;
+    if (originalPrompt && !originalPrompt.endsWith(' ') && !originalPrompt.endsWith('\n')) {
+      originalPrompt += ' ';
+    }
+  };
+
+  recognition.onresult = (event) => {
+    let transcript = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+      transcript += event.results[i][0].transcript;
+    }
+    promptInput.value = originalPrompt + transcript;
+    promptInput.dispatchEvent(new Event('input'));
+  };
+
+  recognition.onerror = (e) => {
+    console.warn("Speech recognition error:", e.error);
+    isRecording = false;
+    micBtn.classList.remove('recording');
+  };
+
+  recognition.onend = () => {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+  };
+} else {
+  micBtn.style.display = 'none';
+  micBtn.title = "Voice typing is not supported in this browser";
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  micBtn.addEventListener('click', () => {
+    if (!recognition) return alert('Speech Recognition not supported in this browser.');
+    if (isRecording) {
+      recognition.stop();
+    } else {
+      recognition.start();
+    }
+  });
+
   runBtn.addEventListener('click', handleRun);
   stopBtn.addEventListener('click', handleStop);
   promptInput.addEventListener('keydown', (e) => {
@@ -35,6 +98,31 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       handleRun();
     }
+  });
+
+  // ── File Attach Wiring ────────────────────────────────────────
+  attachBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    if (file) await handleFileSelected(file);
+    fileInput.value = '';
+  });
+
+  fileChipRemove.addEventListener('click', () => clearFile());
+
+  promptContainer.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    promptContainer.classList.add('drag-over');
+  });
+  promptContainer.addEventListener('dragleave', () => {
+    promptContainer.classList.remove('drag-over');
+  });
+  promptContainer.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    promptContainer.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) await handleFileSelected(file);
   });
 
   // Mode Switcher
@@ -120,14 +208,14 @@ async function runParallelComparison() {
   }
 
   try {
-    const results = await sendViaExtension('runComparison', { prompt });
+    const results = await sendViaExtension('runComparison', { prompt, fileData: selectedFile });
 
     for (const [name, result] of Object.entries(results)) {
       const panel = panels[name];
       if (!panel) continue;
 
       if (result.success) {
-        setResponse(panel, result.response, result.duration);
+        setResponse(panel, result.response, result.duration, result.responseHtml);
       } else {
         setError(panel, result.error);
       }
@@ -158,7 +246,7 @@ async function runDebate() {
 
   // Streaming Listener
   const handleTurn = (e) => {
-    const { type, agent, response, round, score, message, error } = e.detail;
+    const { type, agent, response, responseHtml, round, score, message, error } = e.detail;
     
     if (type === 'status') {
       runBtn.querySelector('.run-btn-text').textContent = message;
@@ -167,7 +255,7 @@ async function runDebate() {
       const name = agent === 'chatgpt' ? 'ChatGPT' : 'Gemini';
       const badge = `Round ${round}`;
       if (response) {
-        addTimelineItem(agent, name, response, badge, score);
+        addTimelineItem(agent, name, response, badge, score, responseHtml);
       } else if (error) {
         addTimelineItem(agent, name, `Error: ${error}`, badge);
       }
@@ -178,7 +266,7 @@ async function runDebate() {
 
   try {
     // Start the long-running process
-    const result = await sendViaExtension('startDebate', { prompt });
+    const result = await sendViaExtension('startDebate', { prompt, fileData: selectedFile });
     
     if (!result.success) {
       addTimelineItem('system', 'System', `Debate stopped: ${result.error}`);
@@ -199,6 +287,42 @@ async function runDebate() {
   }
 }
 
+
+// ── File Helpers ──────────────────────────────────────────────────
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
+
+async function handleFileSelected(file) {
+  if (!ALLOWED_TYPES.includes(file.type) && !file.type.startsWith('image/')) {
+    alert('Unsupported file type. Please attach an image or PDF.');
+    return;
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    alert(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 25 MB.`);
+    return;
+  }
+  const dataUrl = await readFileAsDataURL(file);
+  selectedFile = { name: file.name, type: file.type, size: file.size, dataUrl };
+  fileChipName.textContent = file.name;
+  fileChip.classList.remove('hidden');
+  attachBtn.classList.add('has-file');
+}
+
+function clearFile() {
+  selectedFile = null;
+  fileChip.classList.add('hidden');
+  fileChipName.textContent = '';
+  attachBtn.classList.remove('has-file');
+}
+
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
 
 // ── Helpers ───────────────────────────────────────────────────────
 function checkExtension() {
@@ -259,15 +383,22 @@ function setError(panel, message) {
   panel.meta.style.color = '#ef4444';
 }
 
-function setResponse(panel, text, durationMs) {
-  const html = marked.parse(text, { breaks: true, gfm: true });
-  panel.body.innerHTML = `<div class="response-content">${html}</div>`;
+function setResponse(panel, text, durationMs, rawHtml = null) {
+  let html;
+  if (rawHtml) {
+    // Direct HTML from the AI (e.g. Gemini) — preserves math rendering
+    html = `<div class="response-content">${rawHtml}</div>`;
+  } else {
+    // Markdown text (e.g. ChatGPT) — render through marked + KaTeX
+    html = `<div class="response-content">${renderLatex(marked.parse(text, { breaks: true, gfm: true }))}</div>`;
+  }
+  panel.body.innerHTML = html;
   const duration = (durationMs / 1000).toFixed(1);
   panel.meta.textContent = `${duration}s`;
   panel.meta.style.color = '';
 }
 
-function addTimelineItem(type, name, content, badgeText = '', score = null) {
+function addTimelineItem(type, name, content, badgeText = '', score = null, rawHtml = null) {
   const item = document.createElement('div');
   item.className = `timeline-item ${type}`;
   
@@ -287,8 +418,8 @@ function addTimelineItem(type, name, content, badgeText = '', score = null) {
     </div>
   `;
   
-  const mdHtml = marked.parse(content, { breaks: true, gfm: true });
-  item.innerHTML = headerHtml + `<div class="response-content">${mdHtml}</div>`;
+  const displayHtml = rawHtml ? rawHtml : renderLatex(marked.parse(content, { breaks: true, gfm: true }));
+  item.innerHTML = headerHtml + `<div class="response-content">${displayHtml}</div>`;
   
   timelineItems.appendChild(item);
   item.scrollIntoView({ behavior: 'smooth' });
@@ -298,4 +429,31 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ── LaTeX Rendering ──────────────────────────────────────────────
+function renderLatex(html) {
+  if (typeof katex === 'undefined') return html;
+
+  // Display math: $$ ... $$ or \[ ... \]
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (match, tex) => {
+    try { return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false }); }
+    catch (e) { return match; }
+  });
+  html = html.replace(/\\\[([\s\S]*?)\\\]/g, (match, tex) => {
+    try { return katex.renderToString(tex.trim(), { displayMode: true, throwOnError: false }); }
+    catch (e) { return match; }
+  });
+
+  // Inline math: \( ... \) or $ ... $ (single, not double)
+  html = html.replace(/\\\(([\s\S]*?)\\\)/g, (match, tex) => {
+    try { return katex.renderToString(tex.trim(), { displayMode: false, throwOnError: false }); }
+    catch (e) { return match; }
+  });
+  html = html.replace(/(?<!\$)\$(?!\$)([^\$\n]+?)\$(?!\$)/g, (match, tex) => {
+    try { return katex.renderToString(tex.trim(), { displayMode: false, throwOnError: false }); }
+    catch (e) { return match; }
+  });
+
+  return html;
 }
