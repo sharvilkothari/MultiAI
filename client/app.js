@@ -337,7 +337,6 @@ function setBtnLoading(loading) {
   runBtn.disabled = loading;
   if (loading) {
     runBtn.classList.add('loading');
-    runBtn.querySelector('.run-btn-icon').textContent = '⟳';
     runBtn.querySelector('.run-btn-text').textContent = 'Running...';
     // Show stop button only in debate mode
     if (currentMode === 'debate') {
@@ -345,7 +344,6 @@ function setBtnLoading(loading) {
     }
   } else {
     runBtn.classList.remove('loading');
-    runBtn.querySelector('.run-btn-icon').textContent = '▶';
     runBtn.querySelector('.run-btn-text').textContent = currentMode === 'debate' ? 'Start Debate' : 'Run Comparison';
     stopBtn.classList.add('hidden');
   }

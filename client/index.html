@@ -4,26 +4,38 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Compare — ChatGPT vs Gemini</title>
+    <title>AI Compare — Immersive AI Workspace</title>
     <meta name="description" content="Compare ChatGPT and Gemini responses side-by-side with browser automation" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
         rel="stylesheet" />
     <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
+    <div class="ambient ambient-left" aria-hidden="true"></div>
+    <div class="ambient ambient-right" aria-hidden="true"></div>
     <div class="app">
         <!-- Header -->
         <header class="header">
             <div class="header-content">
-                <div class="logo">
-                    <span class="logo-icon">⚡</span>
-                    <h1>AI Compare</h1>
+                <div class="brand-block">
+                    <div class="logo">
+                        <span class="logo-icon">✦</span>
+                        <div>
+                            <p class="eyebrow">Immersive Compare Workspace</p>
+                            <h1>AI Compare</h1>
+                        </div>
+                    </div>
+                    <p class="header-sub">Run the same prompt through ChatGPT and Gemini in a warmer, more cinematic side-by-side workspace.</p>
                 </div>
-                <p class="header-sub">ChatGPT vs Gemini — side by side</p>
+                <div class="header-badges">
+                    <span class="header-badge">Parallel thinking</span>
+                    <span class="header-badge">Debate mode</span>
+                    <span class="header-badge">File-aware prompts</span>
+                </div>
             </div>
         </header>
 
@@ -37,8 +49,15 @@
         <!-- Prompt Input -->
         <section class="prompt-section">
             <div class="prompt-container">
+                <div class="prompt-intro">
+                    <div>
+                        <p class="section-kicker">Prompt deck</p>
+                        <h2>Shape one question, watch two models respond.</h2>
+                    </div>
+                    <p class="prompt-intro-copy">Use compare mode for clean contrast or switch to debate mode to let the models iterate toward consensus.</p>
+                </div>
                 <textarea id="promptInput" class="prompt-input"
-                    placeholder="Enter your prompt here... (Ctrl+Enter to send)" rows="4"></textarea>
+                    placeholder="Ask for strategy, code, research, or visual analysis... (Ctrl+Enter to send)" rows="4"></textarea>
                 <input type="file" id="fileInput" accept="image/*,.pdf" style="display:none;" />
                 <div id="fileChip" class="file-chip hidden">
                     <span class="file-chip-icon">📎</span>
@@ -78,18 +97,31 @@
                         <span class="run-btn-text">Run Comparison</span>
                     </button>
                 </div>
+                <div class="prompt-footer">
+                    <span>Palette: midnight blue, ember red, vivid orange, sunlit gold</span>
+                    <span>Built for focus, contrast, and readable long-form output</span>
+                </div>
             </div>
         </section>
 
         <!-- Response Panels -->
         <section class="results-section">
+            <div class="results-heading">
+                <div>
+                    <p class="section-kicker">Response arena</p>
+                    <h2>Compare tone, depth, and reasoning without the UI getting in the way.</h2>
+                </div>
+            </div>
             <div class="results-grid" id="gridView">
                 <!-- ChatGPT Panel -->
                 <div class="panel panel-chatgpt" id="panelChatgpt">
                     <div class="panel-header">
                         <div class="panel-title">
                             <span class="panel-icon chatgpt-icon">◉</span>
-                            <span>ChatGPT</span>
+                            <div>
+                                <span>ChatGPT</span>
+                                <p class="panel-label">Structured, steady, analytical</p>
+                            </div>
                         </div>
                         <div class="panel-meta" id="metaChatgpt"></div>
                     </div>
@@ -106,7 +138,10 @@
                     <div class="panel-header">
                         <div class="panel-title">
                             <span class="panel-icon gemini-icon">◈</span>
-                            <span>Gemini</span>
+                            <div>
+                                <span>Gemini</span>
+                                <p class="panel-label">Fast synthesis, broad perspective</p>
+                            </div>
                         </div>
                         <div class="panel-meta" id="metaGemini"></div>
                     </div>
